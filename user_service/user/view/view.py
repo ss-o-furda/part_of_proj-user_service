@@ -24,11 +24,10 @@ def check_access(func):
             return response(err='You are unauthorized.',
                             status=status.HTTP_401_UNAUTHORIZED)
         return func(*args, **kwargs)
-
     return wrapper
 
 
-class UserResource(Resource):
+class UserProfileResource(Resource):
     @check_access
     def get(self):
         try:
@@ -48,7 +47,7 @@ class UserResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with id={user_id} does not exists.',
+            return response(err=f'User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
 
     def post(self):
@@ -63,7 +62,6 @@ class UserResource(Resource):
         except ValidationError as err:
             return response(err=err.messages,
                             status=status.HTTP_400_BAD_REQUEST)
-
         try:
             is_exist = DB.session.query(User.id).filter_by(user_email=new_user.user_email).first() is not None
             if is_exist:
@@ -77,7 +75,6 @@ class UserResource(Resource):
         except ValidationError as err:
             return response(err=err.messages,
                             status=status.HTTP_400_BAD_REQUEST)
-
         try:
             DB.session.add(new_user)
             DB.session.commit()
@@ -112,7 +109,7 @@ class UserResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with id={user_id} does not exists.',
+            return response(err=f'User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
         try:
             DB.session.commit()
@@ -124,5 +121,46 @@ class UserResource(Resource):
             return response(err='Failed to update user data. Database error.',
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @check_access
+    def delete(self):
+        try:
+            user_info = decode_token(session[JWT_TOKEN])
+            user_id = user_info['identity']
+            user = User.find_user(id=user_id)
+            if user:
+                try:
+                    DB.session.delete(user)
+                    DB.session.commit()
+                    session.clear()
+                    return response(msg='User successfully deleted.',
+                                    status=status.HTTP_200_OK)
+                except IntegrityError:
+                    DB.session.rollback()
+                    return response(err='Failed to delete user data. Database error.',
+                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err=f'User with this id does not exists.',
+                            status=status.HTTP_404_NOT_FOUND)
 
-API.add_resource(UserResource, '/user')
+
+class ChangeEmailResource(Resource):
+    @check_access
+    def post(self):
+        pass
+
+    @check_access
+    def put(self):
+        pass
+
+
+class ChangePasswordResource(Resource):
+    @check_access
+    def put(self):
+        pass
+
+
+API.add_resource(UserProfileResource, '/user')
+API.add_resource(ChangeEmailResource, '/user/change_email')
+API.add_resource(ChangePasswordResource, '/user/change_password')
