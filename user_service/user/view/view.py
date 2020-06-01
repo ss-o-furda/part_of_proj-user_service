@@ -52,9 +52,12 @@ class UserResource(Resource):
                             status=status.HTTP_404_NOT_FOUND)
 
     def post(self):
-        if session[JWT_TOKEN]:
-            return response(err='You cannot register while you are logged in.',
-                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            if session[JWT_TOKEN]:
+                return response(err='You cannot register while you are logged in.',
+                                status=status.HTTP_403_FORBIDDEN)
+        except KeyError:
+            pass
         try:
             new_user = USER_SCHEMA.load(request.json)
         except ValidationError as err:
@@ -90,7 +93,36 @@ class UserResource(Resource):
 
     @check_access
     def put(self):
-        pass
+        try:
+            user_put_schema = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
+            new_user_data = user_put_schema.load(request.json)
+        except ValidationError as err:
+            return response(err=err.messages,
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user_info = decode_token(session[JWT_TOKEN])
+            user_id = user_info['identity']
+            user = User.find_user(id=user_id)
+            if user:
+                user.user_name = new_user_data.user_name if new_user_data.user_name is not None else user.user_name
+                user.user_first_name = new_user_data.user_first_name if new_user_data.user_first_name is not None \
+                    else user.user_first_name
+                user.user_last_name = new_user_data.user_last_name if new_user_data.user_last_name is not None \
+                    else user.user_last_name
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err=f'User with id={user_id} does not exists.',
+                            status=status.HTTP_404_NOT_FOUND)
+        try:
+            DB.session.commit()
+            return response(msg='User data successfully updated.',
+                            data=user_put_schema.dump(user),
+                            status=status.HTTP_200_OK)
+        except IntegrityError:
+            DB.session.rollback()
+            return response(err='Failed to update user data. Database error.',
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 API.add_resource(UserResource, '/user')
