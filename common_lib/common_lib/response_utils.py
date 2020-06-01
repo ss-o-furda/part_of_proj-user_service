@@ -2,17 +2,20 @@ from flask import jsonify, make_response
 from flask_api.status import HTTP_200_OK
 
 
-def response(msg=None, err=None, status=HTTP_200_OK):
+def response(status, msg=None, err=None, data=None):
     if msg is None:
         msg = ''
     if err is None:
         err = ''
+    if data is None:
+        data = ''
 
     return make_response(
         jsonify(
             {
                 'message': msg,
-                'error': err
+                'error': err,
+                'data': data
             }
         ),
         status

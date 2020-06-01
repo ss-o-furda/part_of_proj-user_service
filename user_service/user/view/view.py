@@ -1,22 +1,60 @@
-from flask import jsonify, request, session, make_response
-from flask_restful import Resource
-from flask_jwt_extended import decode_token, create_access_token
+from functools import wraps
+
+from common_lib.response_utils import response
+from flask import request, session
 from flask_api import status
+from flask_jwt_extended import decode_token, create_access_token
+from flask_restful import Resource
 from marshmallow import ValidationError
+from sqlalchemy.exc import IntegrityError
 from user import DB, API, BCRYPT
 from user.models.user_model import User
 from user.schema.user_schema import UserSchema
-from common_lib.response_utils import response
-from sqlalchemy.exc import IntegrityError
 
-USER_SCHEMA = UserSchema(exclude=['id', 'user_registration_date'])
+USER_SCHEMA = UserSchema(exclude=['id'])
 JWT_TOKEN = 'jwt_token'
 
 
+def check_access(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            session[JWT_TOKEN]
+        except KeyError:
+            return response(err='You are unauthorized.',
+                            status=status.HTTP_401_UNAUTHORIZED)
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 class UserResource(Resource):
+    @check_access
+    def get(self):
+        try:
+            user_info = decode_token(session[JWT_TOKEN])
+            user_id = user_info['identity']
+            user = User.find_user(id=user_id)
+            if user:
+                try:
+                    user_get_schema = UserSchema(exclude=['id', 'user_password'])
+                    user_data = user_get_schema.dump(user)
+                    return response(msg='success',
+                                    data=user_data,
+                                    status=status.HTTP_200_OK)
+                except ValidationError as err:
+                    return response(err=err.messages,
+                                    status=status.HTTP_400_BAD_REQUEST)
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err=f'User with id={user_id} does not exists.',
+                            status=status.HTTP_404_NOT_FOUND)
 
     def post(self):
-
+        if session[JWT_TOKEN]:
+            return response(err='You cannot register while you are logged in.',
+                            status=status.HTTP_403_FORBIDDEN)
         try:
             new_user = USER_SCHEMA.load(request.json)
         except ValidationError as err:
@@ -24,7 +62,7 @@ class UserResource(Resource):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            is_exist = DB.session.query(User.id).filter_by(user_name=new_user.user_email).scalar() is not None
+            is_exist = DB.session.query(User.id).filter_by(user_email=new_user.user_email).first() is not None
             if is_exist:
                 raise ValueError
         except ValueError as err:
@@ -49,6 +87,10 @@ class UserResource(Resource):
             DB.session.rollback()
             return response(err='Failed to create new user. Database error.',
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @check_access
+    def put(self):
+        pass
 
 
 API.add_resource(UserResource, '/user')
