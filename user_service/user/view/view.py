@@ -9,9 +9,12 @@ from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from user import DB, API, BCRYPT
 from user.models.user_model import User
-from user.schema.user_schema import UserSchema
+from user.schema.user_schema import UserSchema, ChangePassSchema
 
 USER_SCHEMA = UserSchema(exclude=['id'])
+USER_GET_SCHEMA = UserSchema(exclude=['id', 'user_password'])
+USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
+PASS_CHANGE_SCHEMA = ChangePassSchema()
 JWT_TOKEN = 'jwt_token'
 
 
@@ -24,6 +27,7 @@ def check_access(func):
             return response(err='You are unauthorized.',
                             status=status.HTTP_401_UNAUTHORIZED)
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -36,8 +40,7 @@ class UserProfileResource(Resource):
             user = User.find_user(id=user_id)
             if user:
                 try:
-                    user_get_schema = UserSchema(exclude=['id', 'user_password'])
-                    user_data = user_get_schema.dump(user)
+                    user_data = USER_GET_SCHEMA.dump(user)
                     return response(msg='success',
                                     data=user_data,
                                     status=status.HTTP_200_OK)
@@ -69,7 +72,6 @@ class UserProfileResource(Resource):
         except ValueError as err:
             return response(err='User with this email already exists.',
                             status=status.HTTP_409_CONFLICT)
-
         try:
             new_user.user_password = BCRYPT.generate_password_hash(new_user.user_password, round(10)).decode('utf-8')
         except ValidationError as err:
@@ -91,8 +93,7 @@ class UserProfileResource(Resource):
     @check_access
     def put(self):
         try:
-            user_put_schema = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
-            new_user_data = user_put_schema.load(request.json)
+            new_user_data = USER_PUT_SCHEMA.load(request.json)
         except ValidationError as err:
             return response(err=err.messages,
                             status=status.HTTP_400_BAD_REQUEST)
@@ -114,7 +115,7 @@ class UserProfileResource(Resource):
         try:
             DB.session.commit()
             return response(msg='User data successfully updated.',
-                            data=user_put_schema.dump(user),
+                            data=USER_PUT_SCHEMA.dump(user),
                             status=status.HTTP_200_OK)
         except IntegrityError:
             DB.session.rollback()
@@ -158,7 +159,36 @@ class ChangeEmailResource(Resource):
 class ChangePasswordResource(Resource):
     @check_access
     def put(self):
-        pass
+        try:
+            pass_change_data = PASS_CHANGE_SCHEMA.load(request.json)
+        except ValidationError as err:
+            return response(err=err.messages,
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user_info = decode_token(session[JWT_TOKEN])
+            user_id = user_info['identity']
+            user = User.find_user(id=user_id)
+            if user:
+                compare_passwords = BCRYPT.check_password_hash(user.user_password, pass_change_data['old_user_pass'])
+                if not compare_passwords:
+                    return response(err='Invalid password.',
+                                    status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    try:
+                        user.user_password = BCRYPT.generate_password_hash(pass_change_data['new_user_pass'],
+                                                                           round(10)).decode('utf-8')
+                        DB.session.commit()
+                        return response(msg='Password changed successfully.',
+                                        status=status.HTTP_200_OK)
+                    except IntegrityError:
+                        DB.session.rollback()
+                        return response(err='Failed to change password. Database error.',
+                                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err=f'User with this id does not exists.',
+                            status=status.HTTP_404_NOT_FOUND)
 
 
 API.add_resource(UserProfileResource, '/user')
