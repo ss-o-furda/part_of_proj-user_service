@@ -1,7 +1,8 @@
 from functools import wraps
 
 from common_lib.response_utils import response
-from flask import request, session
+from common_lib.email_utils import send_mail
+from flask import request, session, render_template
 from flask_api import status
 from flask_jwt_extended import decode_token, create_access_token
 from flask_restful import Resource
@@ -10,12 +11,35 @@ from sqlalchemy.exc import IntegrityError
 from user import DB, API, BCRYPT
 from user.models.user_model import User
 from user.schema.user_schema import UserSchema, ChangePassSchema
+from user.utils.token_utils import get_user_token, verify_user_token
 
 USER_SCHEMA = UserSchema(exclude=['id'])
 USER_GET_SCHEMA = UserSchema(exclude=['id', 'user_password'])
 USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
 PASS_CHANGE_SCHEMA = ChangePassSchema()
 JWT_TOKEN = 'jwt_token'
+
+
+def send_confirmation_mail(receiver, user_name, link):
+    html = render_template('EmailAddressConfirmationMail.html',
+                           user_name=user_name,
+                           confirmation_link=link)
+    send_mail(
+        subject='Please confirm your email address',
+        receiver=receiver,
+        body=html
+    )
+
+
+def send_mail_for_email_change(receiver, user_name, link):
+    html = render_template('EmailChangeConfirmationMail.html',
+                           user_name=user_name,
+                           confirmation_link=link)
+    send_mail(
+        subject='Please confirm the email change',
+        receiver=receiver,
+        body=html
+    )
 
 
 def check_access(func):
@@ -50,7 +74,7 @@ class UserProfileResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with this id does not exists.',
+            return response(err='User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
 
     def post(self):
@@ -80,9 +104,12 @@ class UserProfileResource(Resource):
         try:
             DB.session.add(new_user)
             DB.session.commit()
-            session.permanent = True
+            session.permanent = False
             access_token = create_access_token(new_user.id, expires_delta=False)
             session[JWT_TOKEN] = access_token
+            new_user_token = get_user_token(new_user)
+            confirmation_link = API.url_for(ConfirmEmailResource, token=new_user_token, _external=True)
+            send_confirmation_mail(new_user.user_email, new_user.user_name, confirmation_link)
             return response(msg='New user successfully created.',
                             status=status.HTTP_201_CREATED)
         except IntegrityError:
@@ -110,7 +137,7 @@ class UserProfileResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with this id does not exists.',
+            return response(err='User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
         try:
             DB.session.commit()
@@ -142,17 +169,43 @@ class UserProfileResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with this id does not exists.',
+            return response(err='User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
+
+
+class ConfirmEmailResource(Resource):
+    def post(self, token):
+        try:
+            verified_user = verify_user_token(token)
+            if verified_user:
+                try:
+                    verified_user.user_confirmed = True
+                    DB.session.commit()
+                    return response(msg='Email confirmed.',
+                                    status=status.HTTP_200_OK)
+                except IntegrityError:
+                    DB.session.rollback()
+                    return response(msg='Failed to confirm email address. Database error.',
+                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                raise ValueError
+        except TimeoutError:
+            return response(err='Your token has expired.',
+                            status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return response(err='Invalid token',
+                            status=status.HTTP_400_BAD_REQUEST)
 
 
 class ChangeEmailResource(Resource):
     @check_access
     def post(self):
+        # TODO: check old mail, create token, send mail
         pass
 
     @check_access
     def put(self):
+        # TODO: check token, if valid = change email in db
         pass
 
 
@@ -187,10 +240,11 @@ class ChangePasswordResource(Resource):
             else:
                 raise ValueError
         except ValueError:
-            return response(err=f'User with this id does not exists.',
+            return response(err='User with this id does not exists.',
                             status=status.HTTP_404_NOT_FOUND)
 
 
 API.add_resource(UserProfileResource, '/user')
+API.add_resource(ConfirmEmailResource, '/user/confirm_email/<token>')
 API.add_resource(ChangeEmailResource, '/user/change_email')
 API.add_resource(ChangePasswordResource, '/user/change_password')
