@@ -10,13 +10,14 @@ from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from user import DB, API, BCRYPT
 from user.models.user_model import User
-from user.schema.user_schema import UserSchema, ChangePassSchema
+from user.schema.user_schema import UserSchema, ChangePassSchema, ChangeEmailSchema
 from user.utils.token_utils import get_user_token, verify_user_token
 
 USER_SCHEMA = UserSchema(exclude=['id'])
 USER_GET_SCHEMA = UserSchema(exclude=['id', 'user_password'])
 USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
 PASS_CHANGE_SCHEMA = ChangePassSchema()
+EMAIL_CHANGE_SCHEMA = ChangeEmailSchema()
 JWT_TOKEN = 'jwt_token'
 
 
@@ -174,7 +175,7 @@ class UserProfileResource(Resource):
 
 
 class ConfirmEmailResource(Resource):
-    def post(self, token):
+    def get(self, token):
         try:
             verified_user = verify_user_token(token)
             if verified_user:
@@ -197,16 +198,55 @@ class ConfirmEmailResource(Resource):
                             status=status.HTTP_400_BAD_REQUEST)
 
 
-class ChangeEmailResource(Resource):
+class ChangeEmailConfirmResource(Resource):
+    def get(self, token, email):
+        try:
+            verified_user = verify_user_token(token)
+            if verified_user:
+                try:
+                    verified_user.user_email = email
+                    DB.session.commit()
+                    return response(msg='Email changed successfully.',
+                                    status=status.HTTP_200_OK)
+                except IntegrityError:
+                    DB.session.rollback()
+                    return response(msg='Failed to change email address. Database error.',
+                                    status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except TimeoutError:
+            return response(err='Your token has expired.',
+                            status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return response(err='Invalid token',
+                            status=status.HTTP_400_BAD_REQUEST)
+
+
+class ChangeEmailQueryResource(Resource):
     @check_access
     def post(self):
-        # TODO: check old mail, create token, send mail
-        pass
-
-    @check_access
-    def put(self):
-        # TODO: check token, if valid = change email in db
-        pass
+        try:
+            json_with_new_email = EMAIL_CHANGE_SCHEMA.load(request.json)
+            new_user_email = json_with_new_email['new_user_email']
+        except ValidationError as err:
+            return response(err=err.messages,
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user_info = decode_token(session[JWT_TOKEN])
+            user_id = user_info['identity']
+            user = User.find_user(id=user_id)
+            if user:
+                change_email_token = get_user_token(user)
+                confirmation_link = API.url_for(ChangeEmailConfirmResource,
+                                                token=change_email_token,
+                                                email=new_user_email,
+                                                _external=True)
+                send_mail_for_email_change(new_user_email, user.user_name, confirmation_link)
+                return response(msg='A confirmation email has been sent to your new email.',
+                                status=status.HTTP_200_OK)
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err='User with this id does not exists.',
+                            status=status.HTTP_404_NOT_FOUND)
 
 
 class ChangePasswordResource(Resource):
@@ -246,5 +286,6 @@ class ChangePasswordResource(Resource):
 
 API.add_resource(UserProfileResource, '/user')
 API.add_resource(ConfirmEmailResource, '/user/confirm_email/<token>')
-API.add_resource(ChangeEmailResource, '/user/change_email')
+API.add_resource(ChangeEmailQueryResource, '/user/change_email')
+API.add_resource(ChangeEmailConfirmResource, '/user/change_email/<token>/<email>')
 API.add_resource(ChangePasswordResource, '/user/change_password')

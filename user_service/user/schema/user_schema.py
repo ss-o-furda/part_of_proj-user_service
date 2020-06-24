@@ -20,3 +20,7 @@ class ChangePassSchema(schema.Schema):
     def confirm_password(self, data, **kwargs):
         if data['new_user_pass'] != data['new_user_pass_confirm']:
             raise ValidationError('Incorrect password confirmation.')
+
+
+class ChangeEmailSchema(schema.Schema):
+    new_user_email = fields.Str(validate=validate.Email())
