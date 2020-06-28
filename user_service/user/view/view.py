@@ -1,5 +1,5 @@
 from functools import wraps
-
+from datetime import timedelta
 from common_lib.response_utils import response
 from common_lib.email_utils import send_mail
 from flask import request, session, render_template
@@ -8,9 +8,9 @@ from flask_jwt_extended import decode_token, create_access_token
 from flask_restful import Resource
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
-from user import DB, API, BCRYPT
+from user import DB, API, BCRYPT, APP
 from user.models.user_model import User
-from user.schema.user_schema import UserSchema, ChangePassSchema, ChangeEmailSchema
+from user.schema.user_schema import UserSchema, ChangePassSchema, ChangeEmailSchema, UserLoginSchema
 from user.utils.token_utils import get_user_token, verify_user_token
 
 USER_SCHEMA = UserSchema(exclude=['id'])
@@ -18,27 +18,37 @@ USER_GET_SCHEMA = UserSchema(exclude=['id', 'user_password'])
 USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
 PASS_CHANGE_SCHEMA = ChangePassSchema()
 EMAIL_CHANGE_SCHEMA = ChangeEmailSchema()
+USER_LOGIN_SCHEMA =UserLoginSchema()
 JWT_TOKEN = 'jwt_token'
 
 
-def send_confirmation_mail(receiver, user_name, link):
+def send_confirmation_mail(user):
+    new_user_token = get_user_token(user)
+    confirmation_link = API.url_for(ConfirmEmailResource,
+                                    token=new_user_token,
+                                    _external=True)
     html = render_template('EmailAddressConfirmationMail.html',
-                           user_name=user_name,
-                           confirmation_link=link)
+                           user_name=user.user_name,
+                           confirmation_link=confirmation_link)
     send_mail(
         subject='Please confirm your email address',
-        receiver=receiver,
+        receiver=user.user_email,
         body=html
     )
 
 
-def send_mail_for_email_change(receiver, user_name, link):
+def send_mail_for_email_change(user, new_user_email):
+    change_email_token = get_user_token(user)
+    confirmation_link = API.url_for(ChangeEmailConfirmResource,
+                                    token=change_email_token,
+                                    email=new_user_email,
+                                    _external=True)
     html = render_template('EmailChangeConfirmationMail.html',
-                           user_name=user_name,
-                           confirmation_link=link)
+                           user_name=user.user_name,
+                           confirmation_link=confirmation_link)
     send_mail(
         subject='Please confirm the email change',
-        receiver=receiver,
+        receiver=new_user_email,
         body=html
     )
 
@@ -54,6 +64,43 @@ def check_access(func):
         return func(*args, **kwargs)
 
     return wrapper
+
+
+class UserLogoutResource(Resource):
+    @check_access
+    def get(self):
+        session.clear()
+        return response(msg='Logout successful.',
+                        status=status.HTTP_200_OK)
+
+
+class UserLoginResource(Resource):
+    def post(self):
+        try:
+            input_data = USER_LOGIN_SCHEMA.load(request.json)
+        except ValidationError as err:
+            return response(err=err.messages,
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.find_user(user_email=input_data['user_email'])
+            if user:
+                try:
+                    check_password = BCRYPT.check_password_hash(user.user_password, input_data['user_password'])
+                    if not check_password:
+                        raise AttributeError
+                except AttributeError:
+                    return response(err='Invalid password.',
+                                    status=status.HTTP_400_BAD_REQUEST)
+                session.permanent = True
+                APP.permanent_session_lifetime = timedelta(minutes=30)
+                session[JWT_TOKEN] = create_access_token(user.id)
+                return response(msg='Login successful.',
+                                status=status.HTTP_200_OK)
+            else:
+                raise ValueError
+        except ValueError:
+            return response(err='User with this email does not exist.',
+                            status=status.HTTP_404_NOT_FOUND)
 
 
 class UserProfileResource(Resource):
@@ -94,7 +141,7 @@ class UserProfileResource(Resource):
             is_exist = DB.session.query(User.id).filter_by(user_email=new_user.user_email).first() is not None
             if is_exist:
                 raise ValueError
-        except ValueError as err:
+        except ValueError:
             return response(err='User with this email already exists.',
                             status=status.HTTP_409_CONFLICT)
         try:
@@ -105,12 +152,10 @@ class UserProfileResource(Resource):
         try:
             DB.session.add(new_user)
             DB.session.commit()
-            session.permanent = False
-            access_token = create_access_token(new_user.id, expires_delta=False)
-            session[JWT_TOKEN] = access_token
-            new_user_token = get_user_token(new_user)
-            confirmation_link = API.url_for(ConfirmEmailResource, token=new_user_token, _external=True)
-            send_confirmation_mail(new_user.user_email, new_user.user_name, confirmation_link)
+            session.permanent = True
+            APP.permanent_session_lifetime = timedelta(minutes=30)
+            session[JWT_TOKEN] = create_access_token(new_user.id)
+            send_confirmation_mail(new_user)
             return response(msg='New user successfully created.',
                             status=status.HTTP_201_CREATED)
         except IntegrityError:
@@ -234,12 +279,7 @@ class ChangeEmailQueryResource(Resource):
             user_id = user_info['identity']
             user = User.find_user(id=user_id)
             if user:
-                change_email_token = get_user_token(user)
-                confirmation_link = API.url_for(ChangeEmailConfirmResource,
-                                                token=change_email_token,
-                                                email=new_user_email,
-                                                _external=True)
-                send_mail_for_email_change(new_user_email, user.user_name, confirmation_link)
+                send_mail_for_email_change(user, new_user_email)
                 return response(msg='A confirmation email has been sent to your new email.',
                                 status=status.HTTP_200_OK)
             else:
@@ -289,3 +329,5 @@ API.add_resource(ConfirmEmailResource, '/user/confirm_email/<token>')
 API.add_resource(ChangeEmailQueryResource, '/user/change_email')
 API.add_resource(ChangeEmailConfirmResource, '/user/change_email/<token>/<email>')
 API.add_resource(ChangePasswordResource, '/user/change_password')
+API.add_resource(UserLoginResource, '/login')
+API.add_resource(UserLogoutResource, '/logout')

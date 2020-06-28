@@ -1,5 +1,4 @@
 from flask import jsonify, make_response
-from flask_api.status import HTTP_200_OK
 
 
 def response(status, msg=None, err=None, data=None):

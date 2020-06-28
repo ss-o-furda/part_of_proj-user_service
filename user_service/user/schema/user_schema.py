@@ -1,4 +1,4 @@
-from marshmallow import fields, validate, validates_schema, ValidationError, schema
+from marshmallow import fields, validate, validates_schema, ValidationError
 from user import MARSHMALLOW
 from user.models.user_model import User
 
@@ -11,7 +11,7 @@ class UserSchema(MARSHMALLOW.ModelSchema):
         model = User
 
 
-class ChangePassSchema(schema.Schema):
+class ChangePassSchema(MARSHMALLOW.Schema):
     old_user_pass = fields.Str(validate=validate.Length(6, 255))
     new_user_pass = fields.Str(validate=validate.Length(6, 255))
     new_user_pass_confirm = fields.Str(validate=validate.Length(6, 255))
@@ -22,5 +22,10 @@ class ChangePassSchema(schema.Schema):
             raise ValidationError('Incorrect password confirmation.')
 
 
-class ChangeEmailSchema(schema.Schema):
+class ChangeEmailSchema(MARSHMALLOW.Schema):
     new_user_email = fields.Str(validate=validate.Email())
+
+
+class UserLoginSchema(MARSHMALLOW.Schema):
+    user_email = fields.Str(validate=validate.Email())
+    user_password = fields.Str(validate=validate.Length(6, 255))
