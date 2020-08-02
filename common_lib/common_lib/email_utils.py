@@ -3,8 +3,8 @@ import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-sender_email = 'ubuntu.18.04.del@gmail.com'
-password = 'G9V@^#$Y5T8%9e3DNA5m@*52'
+sender_email = 'mail'
+password = 'pass'
 port = 465
 smtp_server = 'smtp.gmail.com'
 
