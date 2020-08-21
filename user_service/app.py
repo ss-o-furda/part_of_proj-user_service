@@ -7,4 +7,6 @@ from user.view.view import (UserProfileResource,
 
 
 if __name__ == '__main__':
-    APP.run(debug=True)
+    APP.run(host='0.0.0.0',
+            port='8000',
+            debug=True)
