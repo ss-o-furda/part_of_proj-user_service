@@ -1,7 +1,8 @@
-from functools import wraps
 from datetime import timedelta
-from common_lib.response_utils import response
+from functools import wraps
+
 from common_lib.email_utils import send_mail
+from common_lib.response_utils import response
 from flask import request, session, render_template
 from flask_api import status
 from flask_jwt_extended import decode_token, create_access_token
@@ -15,10 +16,10 @@ from user.utils.token_utils import get_user_token, verify_user_token
 
 USER_SCHEMA = UserSchema(exclude=['id'])
 USER_GET_SCHEMA = UserSchema(exclude=['id', 'user_password'])
-USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_registration_date'])
+USER_PUT_SCHEMA = UserSchema(exclude=['id', 'user_email', 'user_password', 'user_confirmed', 'user_registration_date'])
 PASS_CHANGE_SCHEMA = ChangePassSchema()
 EMAIL_CHANGE_SCHEMA = ChangeEmailSchema()
-USER_LOGIN_SCHEMA =UserLoginSchema()
+USER_LOGIN_SCHEMA = UserLoginSchema()
 JWT_TOKEN = 'jwt_token'
 
 
@@ -67,15 +68,73 @@ def check_access(func):
 
 
 class UserLogoutResource(Resource):
+    """
+    Resource for user logout.
+    :method:
+        get:
+            :request params: empty
+            :responses:
+                status: 200
+                    {
+                        "message": "Logout successful.",
+                        "error": "",
+                        "data": ""
+                    }
+                status: 401
+                    {
+                        "message": "",
+                        "error": "You are unauthorized.",
+                        "data": ""
+                    }
+    """
+
     @check_access
     def get(self):
+        """Method for logout"""
         session.clear()
         return response(msg='Logout successful.',
                         status=status.HTTP_200_OK)
 
 
 class UserLoginResource(Resource):
+    """
+    Resource for user login.
+    :method:
+        post:
+            :request params:
+                {
+                    user_login: string,
+                    user_password: string
+                }
+            :responses:
+                status: 200
+                    {
+                        "message": "Login successful.",
+                        "error": "",
+                        "data": ""
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": "Invalid password.",
+                        "data": ""
+                    }
+                status: 401
+                    {
+                        "message": "",
+                        "error": "You are unauthorized.",
+                        "data": ""
+                    }
+                status: 404
+                    {
+                        "message": "",
+                        "error": "User with this email does not exist.",
+                        "data": ""
+                    }
+    """
+
     def post(self):
+        """Method for login"""
         try:
             input_data = USER_LOGIN_SCHEMA.load(request.json)
         except ValidationError as err:
@@ -104,8 +163,159 @@ class UserLoginResource(Resource):
 
 
 class UserProfileResource(Resource):
+    """
+    Resource for interaction with user.
+    :method:
+        get:
+            :request param: empty
+            :responses:
+                status: 200
+                    {
+                        "message": "Successful receipt.",
+                        "error": "",
+                        "data": {
+                                    "user_name": string,
+                                    "user_email": string,
+                                    "user_first_name": string,
+                                    "user_last_name": string,
+                                    "user_confirmed": boolean,
+                                    "user_registration_date": string
+                                  }
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": string,
+                        "data": ""
+                    }
+                status: 401
+                    {
+                        "message": "",
+                        "error": "You are unauthorized.",
+                        "data": ""
+                    }
+                status: 404
+                    {
+                        "message": "",
+                        "error": "User with this id does not exist.",
+                        "data": ""
+                    }
+        post:
+            :request param:
+                {
+                    "user_name": string,
+                    "user_email": string,
+                    "user_password": string,
+                    "user_first_name": string,
+                    "user_last_name": string,
+                    "user_confirmed": boolean,
+                    "user_registration_date": string
+                }
+            :responses:
+                status: 201
+                    {
+                        "message": "New user successfully created.",
+                        "error": "",
+                        "data": ""
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": string,
+                        "data": ""
+                    }
+                status: 403
+                    {
+                        "message": "",
+                        "error": "You cannot register while you are logged in.",
+                        "data": ""
+                    }
+                status: 409
+                    {
+                        "message": "",
+                        "error": "User with this email already exists.",
+                        "data": ""
+                    }
+                status: 500
+                    {
+                        "message": "",
+                        "error": "Failed to create new user. Database error.",
+                        "data": ""
+                    }
+        put:
+            :request param:
+                {
+                    "user_name": string,
+                    "user_first_name": string,
+                    "user_last_name": string
+                }
+            :responses:
+                status: 200
+                    {
+                        "message": "User data successfully updated.",
+                        "error": "",
+                        "data": {
+                                    "user_name": string,
+                                    "user_first_name": string,
+                                    "user_last_name": string
+                                }
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": string,
+                        "data": ""
+                    }
+                status: 401
+                    {
+                        "message": "",
+                        "error": "You are unauthorized.",
+                        "data": ""
+                    }
+                status: 404
+                    {
+                        "message": "",
+                        "error": "User with this id does not exists.",
+                        "data": ""
+                    }
+                status: 500
+                    {
+                        "message": "",
+                        "error": "Failed to update user data. Database error.",
+                        "data": ""
+                    }
+        delete:
+            :request params: empty
+            :responses:
+                status: 200
+                    {
+                        "message": "User successfully deleted.",
+                        "error": "",
+                        "data": ""
+                    }
+                status: 401
+                    {
+                        "message": "",
+                        "error": "You are unauthorized.",
+                        "data": ""
+                    }
+                status: 404
+                    {
+                        "message": "",
+                        "error": "User with this id does not exists.",
+                        "data": ""
+                    }
+                status: 500
+                    {
+                        "message": "",
+                        "error": "Failed to delete user data. Database error.",
+                        "data": ""
+                    }
+    """
+
     @check_access
     def get(self):
+        """Method return information about user"""
         try:
             user_info = decode_token(session[JWT_TOKEN])
             user_id = user_info['identity']
@@ -113,7 +323,7 @@ class UserProfileResource(Resource):
             if user:
                 try:
                     user_data = USER_GET_SCHEMA.dump(user)
-                    return response(msg='success',
+                    return response(msg='Successful receipt.',
                                     data=user_data,
                                     status=status.HTTP_200_OK)
                 except ValidationError as err:
@@ -126,6 +336,7 @@ class UserProfileResource(Resource):
                             status=status.HTTP_404_NOT_FOUND)
 
     def post(self):
+        """Method to create new user"""
         try:
             if session[JWT_TOKEN]:
                 return response(err='You cannot register while you are logged in.',
@@ -165,6 +376,7 @@ class UserProfileResource(Resource):
 
     @check_access
     def put(self):
+        """Method to update user data"""
         try:
             new_user_data = USER_PUT_SCHEMA.load(request.json)
         except ValidationError as err:
@@ -197,6 +409,7 @@ class UserProfileResource(Resource):
 
     @check_access
     def delete(self):
+        """Method to delete user from system/db"""
         try:
             user_info = decode_token(session[JWT_TOKEN])
             user_id = user_info['identity']
@@ -220,7 +433,42 @@ class UserProfileResource(Resource):
 
 
 class ConfirmEmailResource(Resource):
+    """
+    Resource allows to confirm user email address
+    :method:
+        get:
+            :request params:
+                in: "query"
+                name: "token"
+                description: "JSONWebSignatureSerializer token"
+            :responses:
+                status: 200
+                    {
+                        "message": "Email confirmed.",
+                        "error": "",
+                        "data": ""
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": "Your token has expired.",
+                        "data": ""
+                    }
+                status: 400
+                    {
+                        "message": "",
+                        "error": "Invalid token.",
+                        "data": ""
+                    }
+                status: 500
+                    {
+                        "message": "",
+                        "error": "Failed to confirm email address. Database error.",
+                        "data": ""
+                    }
+    """
     def get(self, token):
+        """Method to confirm user email"""
         try:
             verified_user = verify_user_token(token)
             if verified_user:
@@ -239,7 +487,7 @@ class ConfirmEmailResource(Resource):
             return response(err='Your token has expired.',
                             status=status.HTTP_400_BAD_REQUEST)
         except ValueError:
-            return response(err='Invalid token',
+            return response(err='Invalid token.',
                             status=status.HTTP_400_BAD_REQUEST)
 
 
