@@ -52,7 +52,7 @@ and if you see:
 
 Now you can run application. 
 
-Just type ```python user_service/app.py``` and open ```http://0.0.0.0:8000``` in your browser.
+Just type ```python user_service/app.py``` and enjoy 🙃.
 
 
 ## Contributing
